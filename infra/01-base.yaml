@@ -1,0 +1,248 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  NKC202 期末專題 P3 CI/CD - 基礎環境。
+  VPC 網段切分 + 對外的應用主機 + 免 SSH 管理所需的 IAM 角色。
+  刻意不建 NAT Gateway：私有子網目前無對外需求，省下約 US$32/月。
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: nkc202-cicd
+    Description: 所有資源的名稱前綴
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    Description: >
+      本帳號為新制 Free Plan，t2.micro 不在可用機型清單內（見 8/1 實作紀錄圖 46），
+      故採用同為 x86_64 架構的 t3.micro。
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: >
+      以 SSM Public Parameter 取得最新的 Amazon Linux 2023 AMI，
+      避免把 AMI ID 寫死在範本裡（AMI ID 每個 Region 都不同，且會隨更新變動）。
+
+Resources:
+  # ───────────────────────── 網路 ─────────────────────────
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-vpc"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-igw"
+
+  IgwAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  # 公有子網：放對外的應用主機
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]   # ap-northeast-1a
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-public-1a"
+
+  PublicSubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]   # ap-northeast-1c
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-public-1c"
+
+  # 私有子網：本階段不放東西，但先切好。
+  # 用途一：證明會做網段切分（評分維度②、繳交時要的 VPC 截圖）
+  # 用途二：關 4 若做 ECS Fargate 會用到
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.11.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-private-1a"
+
+  PrivateSubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.12.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-private-1c"
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-public-rt"
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IgwAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetARouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetCRouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetC
+      RouteTableId: !Ref PublicRouteTable
+
+  # 私有子網用獨立的 Route Table，且不加任何 0.0.0.0/0 路由。
+  # 這是「外網連不到」的根本保證，比只靠 Security Group 更徹底。
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-private-rt"
+
+  PrivateSubnetARouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetCRouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetC
+      RouteTableId: !Ref PrivateRouteTable
+
+  # ───────────────────────── 安全群組 ─────────────────────────
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-app-sg"
+      GroupDescription: 應用主機；只開 80，不開 22（管理一律走 SSM Session Manager）
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP 對外服務
+        # 這裡刻意沒有 22 port —— 檢核點 #19
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-app-sg"
+
+  # ───────────────────────── IAM ─────────────────────────
+  AppInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-ec2-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Session Manager 連線 + Run Command 接收指令
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        # 關 1 之後要從 ECR 拉映像檔；以角色授權，主機上不存放任何金鑰
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-ec2-role"
+
+  AppInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "${ProjectName}-ec2-profile"
+      Roles:
+        - !Ref AppInstanceRole
+
+  # ───────────────────────── 應用主機 ─────────────────────────
+  AppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref AppInstanceProfile
+      SubnetId: !Ref PublicSubnetA
+      SecurityGroupIds:
+        - !Ref AppSecurityGroup
+      # 刻意不指定 KeyName：沒有 Key Pair 就不可能走 SSH，
+      # 從源頭確保「零對外 SSH」，而不是只靠關閉 22 port。
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          # 這裡只裝作業系統層的必要套件。
+          # 應用程式「刻意不」在這裡安裝 —— 關 0 的目的就是要人工部署一次，
+          # 親身記錄需要幾個步驟、花多少時間（檢核點 #4）。
+          dnf update -y
+          dnf install -y python3.11 python3.11-pip
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-app-01"
+
+  ElasticIp:
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref AppInstance
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-eip"
+
+Outputs:
+  VpcId:
+    Description: VPC ID（截圖時對照用）
+    Value: !Ref Vpc
+
+  PublicSubnetAId:
+    Description: 應用主機所在的子網 ID（檢核點 #26 要對照）
+    Value: !Ref PublicSubnetA
+
+  InstanceId:
+    Description: 應用主機 Instance ID（SSM 下指令時要用）
+    Value: !Ref AppInstance
+
+  AppUrl:
+    Description: 部署完成後用這個網址驗證
+    Value: !Sub "http://${ElasticIp}"
+
+  SsmConnectCommand:
+    Description: 免 SSH 連進主機的指令
+    Value: !Sub "aws ssm start-session --target ${AppInstance} --region ${AWS::Region}"

@@ -1,0 +1,36 @@
+# ─── 絕對不能進 repo 的東西（檢核點 #14：金鑰不落 repo）───
+# GitHub 會自動掃描 commit 內容，一旦 AWS 金鑰被推上去，
+# 就算事後刪檔，git 歷史裡仍然存在，AWS 可能直接鎖帳號。
+.env
+.env.*
+*.pem
+*.key
+credentials
+config
+.aws/
+secrets.*
+*_rsa
+*_ed25519
+
+# ─── Python ───
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# ─── macOS ───
+.DS_Store
+
+# ─── 編輯器 ───
+.vscode/
+.idea/
+
+# ─── 本機暫存 ───
+*.log
+tmp/
+
+# ─── 內部工作文件（含帳號 ID、金鑰尾碼，不進公開 repo）───
+02_明天的操作手冊_關0.md
+關0_手動部署紀錄.md
