@@ -131,8 +131,28 @@ kids.push(new Paragraph({ children: [new PageBreak()] }));
 
 // ── 目錄 ──
 kids.push(H("目錄", HeadingLevel.HEADING_1));
-kids.push(new TableOfContents("目錄", { hyperlink: true, headingStyleRange: "1-2" }));
-kids.push(P("（在 Word 中按 F9 或右鍵「更新功能變數」可產生頁碼）", { size: 18, color: MUTE, italic: true }));
+kids.push(Gap(120));
+[
+  ["摘要", ""],
+  ["一、專題背景與選題", "1.1 題目與範圍　1.2 選題理由　1.3 展示用應用程式的設計"],
+  ["二、系統架構", "2.1 整體資料流　2.2 網路架構　2.3 運算與部署目標"],
+  ["三、實作歷程", "3.1 關 0 手動部署　3.2 關 1 容器化與 ECR　3.3 關 2 自動建置"],
+  ["", "3.4 關 3 自動部署至 EC2　3.5 關 4 ECS Fargate 滾動更新"],
+  ["", "3.6 檢核點驗證：測試守門與回滾"],
+  ["四、成果與量化分析", "4.1 五關對照表　4.2 關於耗時數據的說明"],
+  ["五、安全設計", "5.1 整條流水線零長期憑證　5.2 其他安全措施　5.3 權限的漸進式授予"],
+  ["六、問題排除紀錄", "6.1 GitHub OIDC 信任政策比對失敗　6.2 跨架構建置"],
+  ["", "6.3 ECR 漏洞掃描無結果　6.4 CloudFormation 範本欄位編碼限制"],
+  ["七、設計決策與取捨", "7.1 主要決策一覽　7.2 關 5 的評估與決定"],
+  ["八、與金融業實務的對應", ""],
+  ["九、結論與後續改善", "9.1 結論　9.2 後續改善方向"],
+  ["附錄 A：檢核點對照", ""],
+  ["附錄 B：使用的 AWS 服務與資源", ""],
+  ["附錄 C：交付物索引", ""],
+].forEach(([main, sub]) => {
+  if (main) kids.push(P(main, { bold: true, after: sub ? 40 : 130, size: 23 }));
+  if (sub) kids.push(P(sub, { size: 20, color: MUTE, indent: { left: 300 }, after: 130 }));
+});
 kids.push(new Paragraph({ children: [new PageBreak()] }));
 
 // ── 摘要 ──
@@ -365,6 +385,51 @@ kids.push(P("換版瞬間的實際紀錄：", { bold: true }));
 ].forEach(t => kids.push(Code(t)));
 kids.push(Gap(100));
 kids.push(P("新舊版本同時服務約 15 秒，期間無任何請求失敗。此交錯模式為滾動更新的直接證據——它顯示系統為「先啟動新的、確認健康、再收回舊的」，而非「先終止再啟動」。", { bold: true }));
+// 3.6
+kids.push(H("3.6 檢核點驗證：測試守門與回滾", HeadingLevel.HEADING_2));
+kids.push(P("上述五關完成後，另針對兩項「機制已建置但尚未實際演示」的能力進行驗證。"));
+
+kids.push(H("3.6.1 測試失敗時流水線中止", HeadingLevel.HEADING_3));
+kids.push(P("方法：刻意將測試的預期狀態碼由 200 改為 201（應用實際回傳 200，故必然失敗），推送後觀察流水線行為。"));
+kids.push(table(
+  ["Job", "結果"],
+  [
+    ["執行測試", { t: "失敗", b: true, c: RED }],
+    ["建置並推送映像檔", { t: "未執行（skipped）", b: true, c: MUTE }],
+    ["部署到 EC2", { t: "未執行（skipped）", b: true, c: MUTE }],
+    ["滾動更新部署到 ECS", { t: "未執行（skipped）", b: true, c: MUTE }],
+  ],
+  [4500, 4500]));
+kids.push(Gap());
+kids.push(P("關鍵驗證為「損壞的程式碼是否進入線上環境」：", { bold: true }));
+kids.push(table(
+  ["檢查項目", "演示前", "演示後", "結論"],
+  [
+    ["EC2 線上版本", "v1.2.18-ci", "v1.2.18-ci", { t: "未變更", b: true, c: GRN }],
+    ["ECS 線上版本", "v1.2.18-ci", "v1.2.18-ci", { t: "未變更", b: true, c: GRN }],
+    ["ECR 最新映像檔", "86adf1a", "86adf1a", { t: "未推入新映像檔", b: true, c: GRN }],
+  ],
+  [2400, 2200, 2200, 2200]));
+kids.push(Gap());
+kids.push(P("損壞的程式碼連映像檔倉庫都未進入，更未抵達線上環境。將測試改回後推送，四個 job 全數通過，線上更新為 v1.2.20-ci。", { bold: true }));
+
+kids.push(H("3.6.2 指定舊版本回滾", HeadingLevel.HEADING_3));
+kids.push(P("方法：自 ECR 選定較舊的映像檔標籤，以相同的部署機制重新部署至 EC2 與 ECS。"));
+kids.push(table(
+  ["項目", "內容"],
+  [
+    ["回滾前版本", "v1.2.20-ci"],
+    ["回滾目標", "f7f62d4（v1.2.16-ci），往回 4 個版本"],
+    ["EC2 回滾方式", "SSM Run Command，指定 SHA 標籤拉取並重啟容器"],
+    ["ECS 回滾方式", "註冊指向舊 SHA 的任務定義，觸發滾動更新"],
+    ["回滾後兩個目標", { t: "均為 v1.2.16-ci，網頁 Git Commit 顯示 f7f62d4", b: true, c: GRN }],
+    ["總耗時", { t: "257 秒", b: true }],
+  ],
+  [2400, 6600]));
+kids.push(Gap());
+kids.push(P("此能力源自關 2 的一項刻意設計：部署時指定 commit SHA 標籤而非 latest。latest 會被後續每一次建置覆蓋，唯有 commit SHA 與該次程式碼修改永久對應。因此回滾在操作上並非特殊程序，而僅是「指定另一個標籤重新部署」，與正常部署走完全相同的路徑。", { bold: true }));
+kids.push(Gap(100));
+kids.push(P("限制：ECR 生命週期政策僅保留最近 5 個映像檔，故可回滾範圍為最近 5 個版本。此為儲存成本與可回溯範圍之間的取捨，正式環境可依需求調整。"));
 kids.push(new Paragraph({ children: [new PageBreak()] }));
 
 // ── 四、成果 ──
@@ -581,11 +646,11 @@ kids.push(table(
     ["4", "記錄手動部署的步驟數與耗時", { t: "完成", c: GRN }, "關0 紀錄檔（18 步／16 分鐘）"],
     ["5–9", "Dockerfile、ECR 倉庫、雙標籤推送、EC2 拉取、IAM Role 存取", { t: "完成", c: GRN }, "關1 截圖 01–03"],
     ["10–11", "GitHub repo、workflow 自動觸發", { t: "完成", c: GRN }, "關2 截圖 01–04"],
-    ["12", "測試失敗時流水線中止", { t: "待補", c: "B45309" }, "機制已建置（needs 相依），待實際演示"],
+    ["12", "測試失敗時流水線中止", { t: "完成", c: GRN }, "第 19 次執行實測：測試紅燈、後三個 job 未執行"],
     ["13–14", "自動 build 推 ECR、OIDC 零金鑰", { t: "完成", c: GRN }, "關2 截圖 05–06"],
     ["15–17", "SSM 觸發部署、容器自動更新、端到端驗證", { t: "完成", c: GRN }, "關3 截圖 01–04"],
     ["18–19", "全程無人工登入、不開 22 port", { t: "完成", c: GRN }, "關0 截圖 08、外部連接埠實測"],
-    ["20", "指定舊版本回滾", { t: "待補", c: "B45309" }, "機制已建置（SHA 標籤），待實際演示"],
+    ["20", "指定舊版本回滾", { t: "完成", c: GRN }, "回滾至 f7f62d4，兩個目標均退回 v1.2.16-ci"],
     ["21–23", "ECS 建置、Actions 更新服務、滾動不中斷", { t: "完成", c: GRN }, "關4 紀錄檔（300 次請求零失敗）"],
     ["24–27", "架構圖、各關證據截圖、VPC 截圖、README", { t: "完成", c: GRN }, "docs/架構圖.md、26 張截圖、README.md"],
     ["28", "六關前後對照表", { t: "完成", c: GRN }, "本報告第四章"],
