@@ -40,3 +40,6 @@ tmp/
 簡報/node_modules/
 簡報/package-lock.json
 簡報/package.json
+報告/node_modules/
+報告/package-lock.json
+報告/package.json
