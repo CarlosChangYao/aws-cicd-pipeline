@@ -34,6 +34,7 @@ PAGE = """<!doctype html>
     <dt>Git Commit</dt><dd>{commit}</dd>
     <dt>Deployed At</dt><dd>{deployed}</dd>
     <dt>Served By</dt><dd>{host}</dd>
+    <dt>Deployed Via</dt><dd>GitHub Actions -> ECR -> SSM (no SSH)</dd>
     <dt>Server Time</dt><dd>{now}</dd>
   </dl>
 </div>
