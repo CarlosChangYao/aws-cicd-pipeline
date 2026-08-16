@@ -22,6 +22,5 @@ def test_index_shows_version():
 def test_healthz():
     client = app.test_client()
     resp = client.get("/healthz")
-    # 檢核點 #12 演示：故意寫錯預期值，驗證流水線會紅燈中止
-    assert resp.status_code == 201
+    assert resp.status_code == 200
     assert resp.get_json()["status"] == "ok"
