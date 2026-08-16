@@ -76,6 +76,23 @@ jobs:
           echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           echo "built_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
 
+      - name: 除錯：印出 GitHub 實際送出的身分內容
+        # OIDC 權杖是一段 JWT，中間那段是 base64 編碼的 claims（宣告）。
+        # AWS 就是拿這裡面的 sub 和 aud 去比對信任政策。
+        # 印出來才知道到底是哪一項對不上，不用猜。
+        run: |
+          TOKEN=$(curl -sLS "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['value'])")
+          python3 - "$TOKEN" <<'PY'
+          import base64, json, sys
+          payload = sys.argv[1].split('.')[1]
+          payload += '=' * (-len(payload) % 4)
+          claims = json.loads(base64.urlsafe_b64decode(payload))
+          for k in ('iss', 'aud', 'sub', 'repository', 'repository_owner', 'ref'):
+              print(f'{k:20} = {claims.get(k)}')
+          PY
+
       - name: 以 OIDC 取得 AWS 臨時憑證
         # 這一步不需要任何 secret。GitHub 出示身分權杖，
         # AWS 驗證「確實來自這個 repo」後才發憑證，有效期 1 小時。
