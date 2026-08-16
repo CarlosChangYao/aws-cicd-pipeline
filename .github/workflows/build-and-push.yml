@@ -1,0 +1,137 @@
+name: Build and Push to ECR
+
+# ─────────────────────────────────────────────────────────────
+# 關 2：把關 1 的手動流程自動化
+#
+#   關 1（人工）                        關 2（自動）
+#   ─────────────────                  ─────────────────
+#   自己記得要跑測試             →      push 就自動跑，不過不准部署
+#   自己打 docker build          →      自動執行
+#   自己想版本號                 →      自動用 git commit 與流水號
+#   自己 docker push             →      自動推送
+#   本機要有 AWS 金鑰            →      OIDC 換臨時憑證，零金鑰
+# ─────────────────────────────────────────────────────────────
+
+on:
+  push:
+    branches: [main]
+  # 允許在 GitHub 網頁上手動觸發，方便測試
+  workflow_dispatch:
+
+# 這段是 OIDC 的關鍵：沒有 id-token: write，
+# GitHub 就不會為這次執行簽發身分權杖，AWS 那邊也就換不到憑證。
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-1
+  ECR_REPOSITORY: nkc202-cicd-app
+  AWS_ROLE_ARN: arn:aws:iam::265311920986:role/nkc202-github-actions
+
+jobs:
+  # ── 第一關：測試 ────────────────────────────────────────────
+  # 刻意獨立成一個 job。測試不過，下面的 build 完全不會執行。
+  # 這就是「自動化的內控關卡」——不靠人記得檢查，機器強制執行。
+  test:
+    name: 執行測試
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取出程式碼
+        uses: actions/checkout@v4
+
+      - name: 安裝 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安裝相依套件
+        run: |
+          python -m pip install --quiet --upgrade pip
+          pip install --quiet -r app/requirements.txt pytest
+
+      - name: 跑測試
+        working-directory: app
+        run: pytest -v
+
+  # ── 第二關：打包並推送 ──────────────────────────────────────
+  build-and-push:
+    name: 建置並推送映像檔
+    runs-on: ubuntu-latest
+    # needs 是關鍵：test 沒過，這個 job 直接不執行
+    needs: test
+
+    steps:
+      - name: 取出程式碼
+        uses: actions/checkout@v4
+
+      - name: 產生版本資訊
+        id: meta
+        run: |
+          # 版本號完全由機器決定，人不能介入：
+          #   run_number 是這個 workflow 的第幾次執行（GitHub 自動遞增）
+          #   sha 是這次 commit 的識別碼
+          # 關 0 時這一格只能填「none-manual-deploy」，現在它一定正確。
+          echo "version=v1.2.$(( ${{ github.run_number }} ))-ci" >> $GITHUB_OUTPUT
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "built_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
+      - name: 以 OIDC 取得 AWS 臨時憑證
+        # 這一步不需要任何 secret。GitHub 出示身分權杖，
+        # AWS 驗證「確實來自這個 repo」後才發憑證，有效期 1 小時。
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: 確認取得的身分
+        run: aws sts get-caller-identity
+
+      - name: 登入 ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: 建置並推送映像檔
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          SHA: ${{ steps.meta.outputs.sha_short }}
+          BUILT_AT: ${{ steps.meta.outputs.built_at }}
+        run: |
+          # Actions 的執行環境本來就是 x86_64，
+          # 不需要像本機 Mac 那樣加 --platform 做跨架構模擬。
+          # --provenance=false 是關 1 學到的：避免產出 OCI Image Index
+          # 導致 ECR 漏洞掃描失效。
+          docker build \
+            --provenance=false --sbom=false \
+            --build-arg BUILD_VERSION="$VERSION" \
+            --build-arg GIT_COMMIT="$SHA" \
+            --build-arg DEPLOYED_AT="$BUILT_AT" \
+            -t "$REGISTRY/$ECR_REPOSITORY:$SHA" \
+            -t "$REGISTRY/$ECR_REPOSITORY:$VERSION" \
+            -t "$REGISTRY/$ECR_REPOSITORY:latest" \
+            app/
+
+          # 三個 tag 各有用途：
+          #   :$SHA     → 精確對應某次 commit，回滾時指定這個
+          #   :$VERSION → 人類看得懂的版本號
+          #   :latest   → 部署時預設拉這個
+          docker push "$REGISTRY/$ECR_REPOSITORY:$SHA"
+          docker push "$REGISTRY/$ECR_REPOSITORY:$VERSION"
+          docker push "$REGISTRY/$ECR_REPOSITORY:latest"
+
+      - name: 輸出本次建置摘要
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          SHA: ${{ steps.meta.outputs.sha_short }}
+        run: |
+          {
+            echo "### 建置完成"
+            echo ""
+            echo "| 項目 | 值 |"
+            echo "|---|---|"
+            echo "| 版本 | \`$VERSION\` |"
+            echo "| Git Commit | \`$SHA\` |"
+            echo "| 觸發者 | ${{ github.actor }} |"
+            echo "| 觸發原因 | ${{ github.event_name }} |"
+          } >> $GITHUB_STEP_SUMMARY
