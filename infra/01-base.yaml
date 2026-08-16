@@ -152,14 +152,17 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupName: !Sub "${ProjectName}-app-sg"
-      GroupDescription: 應用主機；只開 80，不開 22（管理一律走 SSM Session Manager）
+      # 注意：GroupDescription 會被轉送給 EC2 API，該欄位僅支援 ASCII，
+      # 寫中文會導致 CREATE_FAILED（Character sets beyond ASCII are not supported）。
+      # 中文說明改放在下方的 Tag 與註解裡。
+      GroupDescription: App host - allow 80 only, no SSH (managed via SSM Session Manager)
       VpcId: !Ref Vpc
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
-          Description: HTTP 對外服務
+          Description: HTTP from internet
         # 這裡刻意沒有 22 port —— 檢核點 #19
       Tags:
         - Key: Name
@@ -213,6 +216,12 @@ Resources:
           # 親身記錄需要幾個步驟、花多少時間（檢核點 #4）。
           dnf update -y
           dnf install -y python3.11 python3.11-pip
+
+          # 縱深防禦：Security Group 已經不放行 22，這裡再把 sshd 本身關掉。
+          # 目的是不依賴單一控制點——即使日後有人誤改 SG 開了 22，
+          # 機器內部也沒有 SSH 服務可以連。管理一律走 SSM Session Manager。
+          systemctl stop sshd
+          systemctl disable sshd
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-app-01"
