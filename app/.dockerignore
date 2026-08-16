@@ -1,0 +1,9 @@
+# build 時不要送進映像檔的東西。
+# 這些檔案進去只會讓映像檔變大、build 變慢，而且測試檔不該出現在正式環境。
+__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+.venv/
+test_*.py
+.DS_Store
