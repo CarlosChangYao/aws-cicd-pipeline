@@ -262,7 +262,7 @@ jobs:
       - name: 輸出部署摘要
         run: |
           {
-            echo "### 部署完成"
+            echo "### 部署完成（關 3：EC2）"
             echo ""
             echo "| 項目 | 值 |"
             echo "|---|---|"
@@ -270,4 +270,93 @@ jobs:
             echo "| 目標主機 | \`$INSTANCE_ID\` |"
             echo "| 部署方式 | SSM Run Command（未使用 SSH） |"
             echo "| 線上網址 | $APP_URL |"
+          } >> $GITHUB_STEP_SUMMARY
+
+  # ── 第四關：滾動更新部署到 ECS Fargate ──────────────────────
+  # 關 3 的部署方式是「先殺舊容器、再起新容器」，中間必然有數秒空窗。
+  # 這個 job 改用 ECS 的滾動更新：
+  #   先啟動新任務 → 等 ALB 健康檢查通過 → 才逐一終止舊任務
+  # 全程至少維持原有數量的健康任務，使用者不會遇到中斷。
+  #
+  # 兩個部署目標並存是刻意的：驗收時可同時展示關 3 與關 4 的差異。
+  deploy-ecs:
+    name: 滾動更新部署到 ECS
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    env:
+      CLUSTER: nkc202-cicd-cluster
+      SERVICE: nkc202-cicd-service
+      TASK_FAMILY: nkc202-cicd-task
+      CONTAINER: app
+      IMAGE_TAG: ${{ needs.build-and-push.outputs.sha_short }}
+      ALB_URL: http://nkc202-cicd-alb-1176135322.ap-northeast-1.elb.amazonaws.com
+
+    steps:
+      - name: 以 OIDC 取得 AWS 臨時憑證
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: 產生新版任務定義並更新服務
+        run: |
+          REGISTRY="265311920986.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          IMAGE="$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "目標映像檔：$IMAGE"
+
+          # ECS 的任務定義是不可變的：要換映像檔就得註冊一個新版本。
+          # 這裡取出目前的定義、替換 image 欄位、重新註冊。
+          aws ecs describe-task-definition --task-definition "$TASK_FAMILY" \
+            --query 'taskDefinition' --output json > td.json
+
+          python3 - "$IMAGE" <<'PY'
+          import json, sys
+          td = json.load(open("td.json"))
+          # 這些欄位是 AWS 回傳的唯讀中繼資料，重新註冊時不能帶
+          for k in ("taskDefinitionArn","revision","status","requiresAttributes",
+                    "compatibilities","registeredAt","registeredBy","deregisteredAt"):
+              td.pop(k, None)
+          td["containerDefinitions"][0]["image"] = sys.argv[1]
+          json.dump(td, open("td-new.json","w"))
+          PY
+
+          NEW_TD=$(aws ecs register-task-definition --cli-input-json file://td-new.json \
+                    --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "新任務定義：$NEW_TD"
+
+          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" \
+            --task-definition "$NEW_TD" --query 'service.serviceName' --output text
+
+      - name: 等待滾動更新完成
+        run: |
+          echo "等待 ECS 完成滾動更新（新任務健康後才終止舊任務）..."
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
+          aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+            --query 'services[0].[desiredCount,runningCount]' --output text \
+            | awk '{print "  期望任務數："$1"  執行中："$2}'
+
+      - name: 驗證 ALB 服務的是新版本
+        run: |
+          for i in $(seq 1 12); do
+            BODY=$(curl -s --max-time 10 "$ALB_URL/healthz" || true)
+            echo "第 $i 次：$BODY"
+            echo "$BODY" | grep -q '"status":"ok"' && { echo "$BODY" > /tmp/alb.json; break; }
+            sleep 5
+          done
+          grep -q '"status":"ok"' /tmp/alb.json || { echo "❌ ALB 健康檢查未通過"; exit 1; }
+          echo "✅ ECS 服務正常"
+
+      - name: 輸出部署摘要
+        run: |
+          {
+            echo "### 部署完成（關 4：ECS Fargate 滾動更新）"
+            echo ""
+            echo "| 項目 | 值 |"
+            echo "|---|---|"
+            echo "| 部署的映像檔 | \`$IMAGE_TAG\` |"
+            echo "| ECS 叢集 | \`$CLUSTER\` |"
+            echo "| 更新策略 | 滾動更新（最低健康 100%、最高 200%） |"
+            echo "| 服務中斷 | 無 |"
+            echo "| 線上網址 | $ALB_URL |"
           } >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,238 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  NKC202 期末專題 關 4 —— ECS Fargate + Application Load Balancer。
+  目的：解決關 3 的最後一個問題「換版瞬間服務中斷」。
+  關 3 的部署方式是 docker rm 舊容器再 docker run 新容器，
+  兩者之間有數秒空窗；本堆疊改為滾動更新，新任務健康後才下線舊任務。
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: nkc202-cicd
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-08d4be33a21a23157
+
+  PublicSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Default: "subnet-0dc38f0d4e6dcd44a,subnet-09b5ad17dfbd4e434"
+    Description: 需跨兩個可用區——ALB 規定至少兩個子網，ECS 跨 AZ 才有高可用
+
+  ImageUri:
+    Type: String
+    Default: 265311920986.dkr.ecr.ap-northeast-1.amazonaws.com/nkc202-cicd-app:latest
+    Description: 初始映像檔。後續由 GitHub Actions 以 commit SHA 更新
+
+  DesiredCount:
+    Type: Number
+    Default: 2
+    Description: >
+      跑 2 個任務分散在不同 AZ。設為 1 可省一半 Fargate 費用，
+      滾動更新仍然無中斷（部署時會暫時變成 2 個），但失去跨 AZ 容錯。
+
+Resources:
+  # ───────────────── 安全群組 ─────────────────
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-alb-sg"
+      GroupDescription: ALB - accept HTTP from internet
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP from internet
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-alb-sg"
+
+  TaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-task-sg"
+      GroupDescription: Fargate tasks - accept traffic from ALB only
+      VpcId: !Ref VpcId
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-task-sg"
+
+  # 拆成獨立資源而非寫在 SecurityGroup 裡，是因為要引用 AlbSecurityGroup，
+  # 直接內嵌會造成循環相依。
+  TaskSgIngressFromAlb:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref TaskSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8080
+      ToPort: 8080
+      SourceSecurityGroupId: !Ref AlbSecurityGroup
+      Description: App port from ALB security group only
+
+  # ───────────────── 負載平衡器 ─────────────────
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "${ProjectName}-alb"
+      Type: application
+      Scheme: internet-facing
+      Subnets: !Ref PublicSubnetIds
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-alb"
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${ProjectName}-tg"
+      VpcId: !Ref VpcId
+      Port: 8080
+      Protocol: HTTP
+      TargetType: ip          # Fargate 使用 awsvpc 網路模式，目標是 IP 而非執行個體
+      HealthCheckPath: /healthz
+      HealthCheckIntervalSeconds: 15
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: "200"
+      TargetGroupAttributes:
+        # 新任務健康後，舊任務先停止接收新連線，等既有連線處理完才終止。
+        # 這是「不中斷」的關鍵之一——不是硬砍舊任務。
+        - Key: deregistration_delay.timeout_seconds
+          Value: "15"
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  # ───────────────── IAM ─────────────────
+  # 執行角色：給 ECS 服務本身用，負責拉映像檔與寫日誌
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-ecs-exec-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  # 任務角色：給容器內的應用程式用。
+  # 本應用不需要呼叫任何 AWS API，所以刻意不掛任何政策——
+  # 這是最小權限原則：不需要就不給。
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-ecs-task-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${ProjectName}"
+      RetentionInDays: 7      # 專題用途，7 天足夠且省錢
+
+  # ───────────────── ECS ─────────────────
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${ProjectName}-cluster"
+      ClusterSettings:
+        - Name: containerInsights
+          Value: disabled     # 開啟會產生 CloudWatch 費用，專題不需要
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${ProjectName}-task"
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: "256"              # 0.25 vCPU —— Fargate 最小規格
+      Memory: "512"
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: app
+          Image: !Ref ImageUri
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8080
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: app
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: Listener       # ALB 監聽器要先就緒，否則服務註冊會失敗
+    Properties:
+      ServiceName: !Sub "${ProjectName}-service"
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref TaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      DeploymentConfiguration:
+        # 這兩個數字就是「換版不中斷」的核心：
+        #   MinimumHealthyPercent 100 → 部署期間健康任務數不得低於原本的 100%
+        #   MaximumPercent 200        → 允許暫時擴充到 200%
+        # 合起來的效果：先啟動新任務 → 等健康檢查通過 → 才終止舊任務。
+        # 對照關 3 的 docker rm 再 docker run，中間必然有空窗。
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets: !Ref PublicSubnetIds
+          SecurityGroups:
+            - !Ref TaskSecurityGroup
+          # 放在公有子網並配發公有 IP，是為了讓任務能拉取 ECR 映像檔。
+          # 替代方案與取捨：
+          #   NAT Gateway        —— 約 US$32/月
+          #   VPC Endpoints × 3  —— 約 US$21/月
+          #   本方案             —— US$0
+          # 安全性由 TaskSecurityGroup 保證：只接受來自 ALB 的 8080，
+          # 雖有公有 IP 但外部無法直接連入。
+          # 正式環境建議改用私有子網 + VPC Endpoints。
+          AssignPublicIp: ENABLED
+      LoadBalancers:
+        - ContainerName: app
+          ContainerPort: 8080
+          TargetGroupArn: !Ref TargetGroup
+      HealthCheckGracePeriodSeconds: 30
+
+Outputs:
+  AlbUrl:
+    Description: ECS 服務的對外網址（關 4 的展示入口）
+    Value: !Sub "http://${LoadBalancer.DNSName}"
+
+  ClusterName:
+    Value: !Ref Cluster
+
+  ServiceName:
+    Value: !GetAtt Service.Name
+
+  TaskDefinitionFamily:
+    Value: !Sub "${ProjectName}-task"
