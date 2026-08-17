@@ -142,7 +142,7 @@ kids.push(Gap(500));
 kids.push(P("姓名：張博堯", { align: AlignmentType.CENTER, size: 24 }));
 kids.push(P("日期：2026 年 9 月", { align: AlignmentType.CENTER, size: 24 }));
 kids.push(Gap(300));
-kids.push(P("程式碼、32 張證據截圖與完整 commit 歷史：", { align: AlignmentType.CENTER, size: 22, color: MUTE, after: 60 }));
+kids.push(P("程式碼、34 張證據截圖與完整 commit 歷史：", { align: AlignmentType.CENTER, size: 22, color: MUTE, after: 60 }));
 kids.push(Link("github.com/CarlosChangYao/aws-cicd-pipeline", REPO_URL, { align: AlignmentType.CENTER, size: 26, bold: true }));
 kids.push(P("（本報告的圖片證據皆存放於上述 repo 的 證據截圖/ 目錄，可直接點擊連結檢視）", { align: AlignmentType.CENTER, size: 18, color: MUTE, italic: true }));
 kids.push(new Paragraph({ children: [new PageBreak()] }));
@@ -664,13 +664,13 @@ kids.push(table(
     ["4", "記錄手動部署的步驟數與耗時", { t: "完成", c: GRN }, "關0 紀錄檔（18 步／16 分鐘）"],
     ["5–9", "Dockerfile、ECR 倉庫、雙標籤推送、EC2 拉取、IAM Role 存取", { t: "完成", c: GRN }, "關1 截圖 01–03"],
     ["10–11", "GitHub repo、workflow 自動觸發", { t: "完成", c: GRN }, "關2 截圖 01–04"],
-    ["12", "測試失敗時流水線中止", { t: "完成", c: GRN }, "第 19 次執行實測：測試紅燈、後三個 job 未執行"],
+    ["12", "測試失敗時流水線中止", { t: "完成", c: GRN }, "檢核點12 截圖 01–02：第 19 次執行測試紅燈、後三個 job 未執行"],
     ["13–14", "自動 build 推 ECR、OIDC 零金鑰", { t: "完成", c: GRN }, "關2 截圖 05–06"],
     ["15–17", "SSM 觸發部署、容器自動更新、端到端驗證", { t: "完成", c: GRN }, "關3 截圖 01–04"],
     ["18–19", "全程無人工登入、不開 22 port", { t: "完成", c: GRN }, "關0 截圖 08、外部連接埠實測"],
     ["20", "指定舊版本回滾", { t: "完成", c: GRN }, "回滾至 f7f62d4，兩個目標均退回 v1.2.16-ci"],
     ["21–23", "ECS 建置、Actions 更新服務、滾動不中斷", { t: "完成", c: GRN }, "關4 截圖 01–05、紀錄檔（300 次請求零失敗）、infra/02-ecs.yaml"],
-    ["24–27", "架構圖、各關證據截圖、VPC 截圖、README", { t: "完成", c: GRN }, "docs/架構圖.md、32 張截圖、README.md"],
+    ["24–27", "架構圖、各關證據截圖、VPC 截圖、README", { t: "完成", c: GRN }, "docs/架構圖.md、34 張截圖、README.md"],
     ["28", "六關前後對照表", { t: "完成", c: GRN }, "本報告第四章"],
     ["29", "開帳先設 Budgets 告警", { t: "完成", c: GRN }, "關0 證據"],
     ["30", "Demo 後資源全數清除", { t: "待辦", c: MUTE }, "驗收後執行"],
@@ -707,7 +707,7 @@ kids.push(table(
     ["infra/02-ecs.yaml", "ALB、ECS Cluster、Fargate Service"],
     [".github/workflows/", "四段式流水線定義"],
     ["關0～關4 紀錄檔（5 份）", "各關的目標、做法、計量、問題排除、設計決策"],
-    ["證據截圖/（32 張）", "關0 13 張、關1 3 張、關2 6 張、關3 4 張、關4 6 張"],
+    ["證據截圖/（34 張）", "關0 13、關1 3、關2 6、關3 4、關4 6、檢核點12 2 張"],
     ["docs/關4_零停機量測原始資料.log", "300 筆請求的原始紀錄"],
   ],
   [3200, 5800]));
