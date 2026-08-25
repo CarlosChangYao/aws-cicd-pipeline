@@ -28,7 +28,7 @@ PAGE = """<!doctype html>
   dd {{ margin: 0; }}
 </style>
 <div class="card">
-  <h1>NKC202 期末專題 · P3 CI/CD 演化闖關（關 4 零停機驗證）</h1>
+  <h1>NKC202 期末專題 · P3 CI/CD 演化闖關（9 月 5 日現場 Demo）</h1>
   <p class="v">{version}</p>
   <dl>
     <dt>Git Commit</dt><dd>{commit}</dd>
