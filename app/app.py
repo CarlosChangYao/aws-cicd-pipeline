@@ -17,7 +17,7 @@ DEPLOYED_AT = os.getenv("DEPLOYED_AT", "unknown")
 # 驗收 Demo 會現場調整 FEE_DISCOUNT，示範一次業務規則變更如何自動上線。
 MONTHLY_AMOUNT = 10000      # 每月扣款金額
 FEE_RATE = 0.001425         # 券商手續費率 0.1425%
-FEE_DISCOUNT = 0.6          # 優惠折扣：6 折  ← 業務單位會調整的就是這個
+FEE_DISCOUNT = 0.6          # 定期定額優惠折扣  ← 業務單位會調整的就是這個
 MIN_FEE = 1                 # 最低手續費
 
 

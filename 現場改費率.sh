@@ -15,8 +15,11 @@ echo "============ 這次改了什麼 ============"
 git --no-pager diff --unified=0 -- app/app.py | grep -E "^[+-][^+-]" | sed -e 's/^+/  新增  /' -e 's/^-/  刪除  /'
 echo "======================================"
 echo
-python3 -c "
-import sys; sys.path.insert(0,'app')
-import app as m
-print(f'  手續費：{m.MONTHLY_AMOUNT:,} x {m.FEE_RATE*100:g}% x {m.FEE_DISCOUNT*10:g}折 = NT\$ {m.calc_fee()}')
-"
+# 直接讀原始碼算，不 import —— 避免 .pyc 快取拿到舊值
+python3 - <<'PY'
+import re
+s = open('app/app.py', encoding='utf-8').read()
+g = lambda k: float(re.search(rf'^{k} = ([\d.]+)', s, re.M).group(1))
+amt, rate, disc = g('MONTHLY_AMOUNT'), g('FEE_RATE'), g('FEE_DISCOUNT')
+print(f'  手續費：{amt:,.0f} x {rate*100:g}% x {disc*10:g}折 = NT$ {max(1, round(amt*rate*disc))}')
+PY
