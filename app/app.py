@@ -26,9 +26,14 @@ PAGE = """<!doctype html>
         margin: 0; font-size: .9rem; }}
   dt {{ color: #64748b; }}
   dd {{ margin: 0; }}
+  /* 主管機關要求的風險警語樣式 */
+  .notice {{ background: #422006; border: 1px solid #a16207; color: #fde68a;
+             padding: .8rem 1rem; border-radius: 8px; margin: 0 0 1.5rem;
+             font-size: .78rem; line-height: 1.7; max-width: 30rem; }}
 </style>
 <div class="card">
-  <h1>NKC202 期末專題 · P3 CI/CD 演化闖關（09月04日現場 Demo）</h1>
+  <h1>NKC202 期末專題 · P3 CI/CD 演化闖關</h1>
+  <div class="notice">⚠ 依主管機關規定：本頁資訊僅供參考，不構成投資建議。投資人應自行審慎評估，並詳閱公開說明書。</div>
   <p class="v">{version}</p>
   <dl>
     <dt>Git Commit</dt><dd>{commit}</dd>
