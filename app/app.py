@@ -33,7 +33,6 @@ PAGE = """<!doctype html>
 </style>
 <div class="card">
   <h1>NKC202 期末專題 · P3 CI/CD 演化闖關</h1>
-  <div class="notice">⚠ 依主管機關規定：本頁資訊僅供參考，不構成投資建議。投資人應自行審慎評估，並詳閱公開說明書。</div>
   <p class="v">{version}</p>
   <dl>
     <dt>Git Commit</dt><dd>{commit}</dd>
