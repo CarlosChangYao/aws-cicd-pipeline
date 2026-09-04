@@ -24,3 +24,15 @@ def test_healthz():
     resp = client.get("/healthz")
     assert resp.status_code == 200
     assert resp.get_json()["status"] == "ok"
+
+
+def test_fee_never_exceeds_undiscounted():
+    """業務規則：折扣後的手續費，不可能高於未折扣的原價。
+
+    這條測試守的不是程式碼，是業務邏輯——
+    如果有人把折扣誤設成 1.5（15 折），這裡會擋下來。
+    """
+    from app import FEE_DISCOUNT, FEE_RATE, MONTHLY_AMOUNT, calc_fee
+
+    assert calc_fee() <= MONTHLY_AMOUNT * FEE_RATE
+    assert 0 < FEE_DISCOUNT <= 1
