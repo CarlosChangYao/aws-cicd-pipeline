@@ -6,12 +6,40 @@
 
 【 開場前的準備 】
 
- 瀏覽器開三個分頁：
-   分頁1  http://52.199.107.190
-   分頁2  http://nkc202-cicd-alb-1176135322.ap-northeast-1.elb.amazonaws.com
-   分頁3  https://github.com/CarlosChangYao/aws-cicd-pipeline/actions
+ == 瀏覽器開七個分頁，照這個順序排 ==
 
- 打開終端機，貼這行：
+  分頁1  網站(EC2)
+         http://52.199.107.190
+
+  分頁2  網站(ECS)
+         http://nkc202-cicd-alb-1176135322.ap-northeast-1.elb.amazonaws.com
+
+  分頁3  GitHub Actions
+         https://github.com/CarlosChangYao/aws-cicd-pipeline/actions
+
+  分頁4  AWS - ECR 映像檔倉庫   ★ 這頁最重要
+         https://ap-northeast-1.console.aws.amazon.com/ecr/repositories/private/265311920986/nkc202-cicd-app?region=ap-northeast-1
+
+  分頁5  AWS - ECS 服務
+         https://ap-northeast-1.console.aws.amazon.com/ecs/v2/clusters/nkc202-cicd-cluster/services/nkc202-cicd-service/health?region=ap-northeast-1
+
+  分頁6  AWS - EC2 機器
+         https://ap-northeast-1.console.aws.amazon.com/ec2/home?region=ap-northeast-1#InstanceDetails:instanceId=i-0937ad0e32c5fedca
+
+  分頁7  AWS - CloudFormation
+         https://ap-northeast-1.console.aws.amazon.com/cloudformation/home?region=ap-northeast-1#/stacks
+
+
+ == 分頁4到7 要先登入 AWS ==
+
+   登入網址   https://265311920986.signin.aws.amazon.com/console
+   或用 root 登入也可以
+
+   登入後確認右上角區域是「Asia Pacific (Tokyo)」
+   區域不對的話畫面會空空的，不要嚇到
+
+
+ == 終端機貼這行 ==
 
 cd ~/Desktop/Tibame/專題 && git pull -q && echo 準備好了
 
@@ -76,7 +104,33 @@ git add -A && git commit -m "現場 Demo" && git push origin main
 
 
 ================================================================
-  第 5 步：回去看網站，它自己變了
+  第 5 步：★ 切到 AWS，看新映像檔自己冒出來
+================================================================
+  這是老師說「要不要開 AWS」想看的東西。不要跳過。
+
+ 動作：切到「分頁4」(ECR)，一直按重新整理
+
+ 大約 60 秒後畫面會變：
+
+    Images (5)   -->   Images (6)     數字自己加一
+    最上面多出一列，時間是今天，標籤是剛才那次 commit 的編號
+
+ 說：
+   「這是 AWS 上的映像檔倉庫，我的程式打包好之後放在這裡。
+     大家注意——我從剛才按下送出到現在，完全沒有碰 AWS。
+     這個新的版本是流水線自己推上來的。」
+
+ 順便講標籤（指著最上面那一列）：
+
+   「一個映像檔掛了三個標籤。
+     latest 是最新的，但會被下一次蓋掉；
+     中間是版本號，人看得懂；
+     最後這一串是 commit 編號，永遠不會被蓋掉——
+     所以我要退回舊版，就是指定這一串。」
+
+
+================================================================
+  第 6 步：回去看網站，它自己變了
 ================================================================
 
  動作：切到「分頁1」，按重新整理
@@ -105,13 +159,85 @@ git log --oneline -1
 
 
 ================================================================
+  老師要看 AWS 時，另外三頁怎麼講（各一句就夠）
+================================================================
+
+
+ ---- 分頁5  ECS 服務 ----
+
+ 畫面上要指的地方：  Tasks (2 Desired)  2 running | 0 pending
+
+ 說：
+   「這裡同時跑著兩份我的程式。
+     換版的時候，先把新的開起來、確認健康了，才關掉舊的，
+     所以中間服務不會斷。
+     我實測過部署期間打 300 次請求，300 次全部成功。」
+
+ 如果老師問「那個 task:19 是什麼」：
+
+   「那是第 19 版設定檔。代表這套服務被重新部署過 19 次，
+     每一次都是機器做的，我沒有手動改過任何一次。」
+
+
+ ---- 分頁6  EC2 機器 ----   ★ 這頁最能講安全
+
+ 動作：點中間的「Security」頁籤，往下捲到 Inbound rules
+
+ 畫面上只有一條規則：  Port 80 / TCP
+
+ 說：
+   「這台機器的防火牆規則只有一條，就是 80 port，也就是網頁。
+     沒有 22，代表誰都不能 SSH 連進來——包括我自己。
+     我也沒有建任何金鑰。
+
+     那怎麼部署？靠 AWS 的 Systems Manager，
+     是機器主動向外跟 AWS 拿指令，不是外面連進來，所以門不用開。
+
+     在金融業，金鑰外流和特權帳號被盜用是稽核最常問的兩件事。
+     這個做法讓這兩個風險根本不存在——
+     不是把鑰匙管好，是根本沒有鑰匙。」
+
+ 如果老師問「那機器怎麼有權限拉映像檔」：
+
+   「靠上面那個 nkc202-cicd-ec2-role 角色。
+     權限只給兩項——讀 ECR、接 Systems Manager 指令，其他都不能做。
+     這是最小權限原則。」
+
+
+ ---- 分頁7  CloudFormation ----
+
+ 畫面上：兩個堆疊，都是綠色的 CREATE_COMPLETE
+
+   nkc202-cicd-base  = 地基（VPC、子網路、防火牆、EC2、IAM）
+   nkc202-cicd-ecs   = 上層（負載平衡器、ECS 叢集、任務定義）
+
+ 說：
+   「剛才看的那三頁，全部是從這兩個檔案長出來的。
+     我沒有在 console 上一個一個點按鈕，我寫了兩個 YAML 交給 AWS，
+     它自己蓋好。這叫基礎設施即程式碼。
+
+     所以環境如果被誤刪、或要在另一個帳號重建一份一樣的，
+     我不用記得當初點了哪四十個按鈕，把檔案再跑一次就好。
+
+     而且這兩個檔案在 GitHub 上，誰改過哪一行都查得到。
+     對金融業來說這就是變更管理——留軌跡，不靠某個人的記憶。」
+
+ 註：Description 欄位如果顯示成一堆問號，那是字型問題不是壞掉，
+     講堆疊名稱和綠色狀態就好，不用點開。
+
+
+================================================================
   萬一出狀況
 ================================================================
 
- 網站打不開      → 改用分頁2（那是另一台獨立的機器）
- Actions 卡住    → 頁面上按「Re-run all jobs」
- push 被拒絕     → 先貼：git pull --rebase
-                    再貼：git push origin main
- 完全跑不動      → 翻報告第三章，數據和截圖都在
+ 網站打不開       → 改用分頁2（那是另一台獨立的機器）
+ Actions 卡住     → 頁面上按「Re-run all jobs」
+ push 被拒絕      → 先貼：git pull --rebase
+                     再貼：git push origin main
+ AWS 畫面空空的   → 看右上角區域，改成 Asia Pacific (Tokyo)
+ AWS 登入不進去   → 用 root 登入，或先跳過 AWS 頁面，
+                     用分頁1到3 照樣可以完成 Demo
+ ECR 沒看到新的   → 多按幾次重新整理，或先講分頁5、6、7 拖時間
+ 完全跑不動       → 翻報告第三章，數據和截圖都在
 
 ================================================================
