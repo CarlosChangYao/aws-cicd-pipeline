@@ -17,7 +17,7 @@ DEPLOYED_AT = os.getenv("DEPLOYED_AT", "unknown")
 # 驗收 Demo 會現場調整 FEE_DISCOUNT，示範一次業務規則變更如何自動上線。
 # 風控參數：市場劇烈波動時，風控單位會緊急調降委託上限以控制曝險。
 NORMAL_ORDER_LIMIT = 500000   # 平時的單筆委託上限
-ORDER_LIMIT = 500000          # 現行上限  ← 風控單位緊急調整的就是這個
+ORDER_LIMIT = 100000          # 現行上限  ← 風控單位緊急調整的就是這個
 
 MONTHLY_AMOUNT = 10000      # 每月扣款金額
 FEE_RATE = 0.001425         # 券商手續費率 0.1425%
