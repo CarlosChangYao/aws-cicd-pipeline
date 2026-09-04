@@ -64,14 +64,22 @@ git push origin main
 
 ## 二、當天開場前 5 分鐘
 
-### 瀏覽器先開好這四個分頁，依序排列
+### 瀏覽器先開好這七個分頁，依序排列
 
 | # | 分頁 | 網址 |
 |---|---|---|
 | 1 | 線上網站（EC2） | http://52.199.107.190 |
 | 2 | 線上網站（ECS + ALB） | http://nkc202-cicd-alb-1176135322.ap-northeast-1.elb.amazonaws.com |
 | 3 | GitHub Actions | https://github.com/CarlosChangYao/aws-cicd-pipeline/actions |
-| 4 | GitHub Repo 首頁 | https://github.com/CarlosChangYao/aws-cicd-pipeline |
+| 4 | **AWS · ECR 映像檔倉庫** ★ | https://ap-northeast-1.console.aws.amazon.com/ecr/repositories/private/265311920986/nkc202-cicd-app?region=ap-northeast-1 |
+| 5 | AWS · ECS 服務 | https://ap-northeast-1.console.aws.amazon.com/ecs/v2/clusters/nkc202-cicd-cluster/services/nkc202-cicd-service/health?region=ap-northeast-1 |
+| 6 | AWS · EC2 機器 | https://ap-northeast-1.console.aws.amazon.com/ec2/home?region=ap-northeast-1#InstanceDetails:instanceId=i-0937ad0e32c5fedca |
+| 7 | AWS · CloudFormation | https://ap-northeast-1.console.aws.amazon.com/cloudformation/home?region=ap-northeast-1#/stacks |
+
+> **分頁 4–7 要先登入 AWS**：https://265311920986.signin.aws.amazon.com/console （root 登入亦可）
+> 登入後確認右上角區域是 **Asia Pacific (Tokyo)**，否則畫面會是空的。
+>
+> **老師 9/4 問「要不要開 AWS」，指的就是分頁 4–7。** 各頁怎麼講，見 `Demo小抄.txt`。
 
 ### 終端機先跑好這行（環境變數不會跨視窗，一定要先跑）
 
@@ -263,3 +271,24 @@ aws ec2 describe-instances --instance-ids i-0937ad0e32c5fedca \
 
 > ⚠️ **9/7 報告繳交前不要清除**，萬一老師要看線上服務就沒了。
 > 建議 9/7 交完報告後再執行。
+
+
+---
+
+## 附錄：9/4 晚間演練實測（22:53）
+
+驗收前一天完整跑過一次，端到端正常。
+
+| 項目 | 結果 |
+|---|---|
+| commit | `b7e0635` |
+| 執行測試 | ✅ 14 秒 |
+| 建置並推送映像檔 | ✅ 40 秒 |
+| 部署到 EC2 | ✅ 24 秒 |
+| **前三段合計** | **78 秒** |
+| ECR 新映像檔出現 | 推送後 **58 秒**，標籤 `v1.2.30-ci, latest, b7e0635` |
+| EC2 線上版本 | `v1.2.30-ci` |
+| ECS 線上版本 | `v1.2.30-ci` |
+
+**滾動更新（ECS）那個 job 會比網站實際更新再晚幾分鐘完成**，因為它要等服務達到「完全穩定」才回報成功。
+Demo 時不用等它全綠，網站更新了就可以繼續講。
