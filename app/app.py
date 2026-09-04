@@ -15,10 +15,23 @@ DEPLOYED_AT = os.getenv("DEPLOYED_AT", "unknown")
 # ── 業務參數（示範用，非真實商品）─────────────────────────
 # 模擬券商「定期定額」的手續費試算。
 # 驗收 Demo 會現場調整 FEE_DISCOUNT，示範一次業務規則變更如何自動上線。
+# 風控參數：市場劇烈波動時，風控單位會緊急調降委託上限以控制曝險。
+NORMAL_ORDER_LIMIT = 500000   # 平時的單筆委託上限
+ORDER_LIMIT = 500000          # 現行上限  ← 風控單位緊急調整的就是這個
+
 MONTHLY_AMOUNT = 10000      # 每月扣款金額
 FEE_RATE = 0.001425         # 券商手續費率 0.1425%
 FEE_DISCOUNT = 0.6          # 定期定額優惠折扣  ← 業務單位會調整的就是這個
 MIN_FEE = 1                 # 最低手續費
+
+
+def risk_elevated():
+    """現行委託上限低於平時水準，代表風控處於加強狀態。
+
+    這是一條判斷，不是一段寫死的文字——只要調整 ORDER_LIMIT，
+    畫面上的顏色、標籤、卡片外框都會跟著改變。
+    """
+    return ORDER_LIMIT < NORMAL_ORDER_LIMIT
 
 
 def calc_fee():
@@ -47,11 +60,16 @@ PAGE = """<!doctype html>
   hr {{ border: 0; border-top: 1px solid #334155; margin: 1.5rem 0; }}
   .v {{ font-size: 2.2rem; color: #38bdf8; margin: 0 0 1.2rem; }}
   /* 主管機關要求的風險警語樣式 */
+  .card.alert {{ border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,.15); }}
+  .alarm {{ color: #f87171 !important; }}
+  .badge {{ display: inline-block; background: #7f1d1d; border: 1px solid #dc2626;
+            color: #fecaca; font-size: .7rem; padding: .15rem .5rem;
+            border-radius: 999px; margin-left: .6rem; vertical-align: middle; }}
   .notice {{ background: #422006; border: 1px solid #a16207; color: #fde68a;
              padding: .8rem 1rem; border-radius: 8px; margin: 0 0 1.5rem;
              font-size: .78rem; line-height: 1.7; }}
 </style>
-<div class="card">
+<div class="card{alert_cls}">
   <h1>NKC202 期末專題 · P3 CI/CD 演化闖關</h1>
   <h2>定期定額手續費試算（示範）</h2>
   <dl class="biz">
@@ -59,6 +77,7 @@ PAGE = """<!doctype html>
     <dt>手續費率</dt><dd>{rate}</dd>
     <dt>優惠折扣</dt><dd class="hl">{discount}</dd>
     <dt>每次手續費</dt><dd class="hl">NT$ {fee}</dd>
+    <dt>單筆委託上限</dt><dd class="hl {limit_cls}">NT$ {limit:,}{badge}</dd>
   </dl>
   <hr>
   <p class="v">{version}</p>
@@ -80,6 +99,10 @@ def index():
         rate=f"{FEE_RATE * 100:g}%",
         discount=f"{FEE_DISCOUNT * 10:g} 折",
         fee=calc_fee(),
+        limit=ORDER_LIMIT,
+        alert_cls=" alert" if risk_elevated() else "",
+        limit_cls="alarm" if risk_elevated() else "",
+        badge='<span class="badge">⚠ 風控加強中</span>' if risk_elevated() else "",
         version=BUILD_VERSION,
         commit=GIT_COMMIT,
         deployed=DEPLOYED_AT,

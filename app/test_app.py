@@ -36,3 +36,14 @@ def test_fee_never_exceeds_undiscounted():
 
     assert calc_fee() <= MONTHLY_AMOUNT * FEE_RATE
     assert 0 < FEE_DISCOUNT <= 1
+
+
+def test_order_limit_never_exceeds_normal():
+    """風控規則：現行委託上限不得高於平時上限。
+
+    萬一有人把 100000 誤打成 1000000（多一個零），
+    等於偷偷把風險敞口放大十倍——這條測試會直接擋在上線之前。
+    """
+    from app import NORMAL_ORDER_LIMIT, ORDER_LIMIT
+
+    assert 0 < ORDER_LIMIT <= NORMAL_ORDER_LIMIT
